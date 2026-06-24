@@ -191,7 +191,7 @@ class TradingRuntime:
     async def _rest_poll_loop(
         self,
         rest_client: MexcRESTClient,
-        engine: AdvancedTradingEngine,
+        engine: PortfolioTradingEngine,
         supervisor: MexcWebSocketSupervisor,
         stop_event: asyncio.Event,
     ) -> None:
@@ -207,9 +207,6 @@ class TradingRuntime:
                     depth = await rest_client.depth_snapshot(symbol, limit=5)
                     engine.refresh_depth_snapshot(symbol, depth)
 
-                if self.settings.live_trading_armed:
-                    await self._execute_live_portfolio_actions(rest_client, engine, engine.last_actions)
-
                 if self.settings.has_mexc_credentials:
                     account = await rest_client.account_information()
                     engine.refresh_account(account)
@@ -221,6 +218,10 @@ class TradingRuntime:
                             "mode": self.settings.trading_mode,
                         },
                     )
+
+                if self.settings.live_trading_armed:
+                    engine.rebalance_if_due(force=True)
+                    await self._execute_live_portfolio_actions(rest_client, engine, engine.last_actions)
 
                 self.telemetry.update(engine.telemetry(supervisor.health()))
             except MexcRateLimitError as exc:

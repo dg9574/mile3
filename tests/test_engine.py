@@ -104,3 +104,34 @@ def test_portfolio_engine_tracks_multiple_symbols(tmp_path):
     assert telemetry["portfolio"]["enabled"] is True
     assert telemetry["portfolio"]["symbols"] == ["BTCUSDT", "ETHUSDT"]
     assert set(telemetry["symbols"].keys()) == {"BTCUSDT", "ETHUSDT"}
+
+
+def test_live_portfolio_uses_mexc_account_balance(tmp_path):
+    settings = Settings(
+        TRADING_SYMBOL="BTCUSDT",
+        TRADING_SYMBOLS="BTCUSDT,ETHUSDT",
+        TRADING_MODE="live",
+        LIVE_TRADING_CONFIRMATION="I_UNDERSTAND_LIVE_MEXC_TRADING",
+        PORTFOLIO_STATE_PATH=str(tmp_path / "portfolio.json"),
+        ENGINE_STATE_PATH=str(tmp_path / "single.json"),
+        RESEARCH_PROFILES_DIR=str(tmp_path / "profiles"),
+        PAPER_STARTING_EQUITY_USDT=Decimal("100"),
+        PORTFOLIO_REBALANCE_INTERVAL_SECONDS=0,
+    )
+    portfolio = PortfolioTradingEngine(settings)
+    portfolio.set_last_price("BTCUSDT", Decimal("100"))
+    portfolio.set_last_price("ETHUSDT", Decimal("50"))
+    portfolio.refresh_account(
+        {
+            "balances": [
+                {"asset": "USDT", "free": "105", "locked": "0"},
+                {"asset": "BTC", "free": "0.1", "locked": "0"},
+            ]
+        }
+    )
+    telemetry = portfolio.telemetry()
+
+    assert telemetry["portfolio"]["account_source"] == "mexc_live_account"
+    assert telemetry["system_balance"]["total_equity_usdt"] == 115.0
+    assert telemetry["system_balance"]["balances"]["USDT"]["free"] == 105.0
+    assert telemetry["portfolio"]["positions"][0]["symbol"] == "BTCUSDT"

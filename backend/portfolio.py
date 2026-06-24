@@ -84,6 +84,7 @@ class PortfolioTradingEngine:
         }
         self.quote_balance = parse_decimal(stored.get("quote_balance"), settings.paper_starting_equity_usdt)
         self.positions: dict[str, JsonDict] = stored.get("positions", {}) if isinstance(stored.get("positions"), dict) else {}
+        self.account_balances: dict[str, dict[str, Decimal]] = {}
         self.milestones = MilestoneVerifier(settings, stored.get("milestones"))
         self.execution_log: deque[ExecutionLogEntry] = deque(maxlen=300)
         for row in stored.get("execution_log", [])[-80:]:
@@ -123,7 +124,19 @@ class PortfolioTradingEngine:
     def refresh_account(self, account_payload: JsonDict) -> None:
         for engine in self.engines.values():
             engine.refresh_account(account_payload)
-        self.record_event("account_refreshed", {"asset_count": len(account_payload.get("balances", []))})
+        balances = account_payload.get("balances", [])
+        parsed: dict[str, dict[str, Decimal]] = {}
+        if isinstance(balances, list):
+            for balance in balances:
+                asset = str(balance.get("asset") or balance.get("currency") or "").upper()
+                if not asset:
+                    continue
+                free = parse_decimal(balance.get("free") or balance.get("available") or balance.get("balanceAmount"))
+                locked = parse_decimal(balance.get("locked") or balance.get("frozen") or balance.get("frozenAmount"))
+                if free != 0 or locked != 0 or asset == self.quote_asset:
+                    parsed[asset] = {"free": free, "locked": locked}
+        self.account_balances = parsed
+        self.record_event("account_refreshed", {"asset_count": len(balances) if isinstance(balances, list) else 0})
 
     def on_private_update(self, message: JsonDict) -> None:
         symbol = str(message.get("symbol") or "").upper()
@@ -136,9 +149,80 @@ class PortfolioTradingEngine:
         if not force and now - self.last_rebalance_monotonic < self.settings.portfolio_rebalance_interval_seconds:
             return self.last_actions
         self.last_rebalance_monotonic = now
-        self.last_actions = self._rebalance_paper()
+        if self.settings.live_trading_armed:
+            self.last_actions = self._rebalance_live() if self.account_balances else []
+        else:
+            self.last_actions = self._rebalance_paper()
         self._persist()
         return self.last_actions
+
+    def _rebalance_live(self) -> list[PortfolioAction]:
+        actions: list[PortfolioAction] = []
+        total_equity = self.total_equity_usdt()
+        tier_status = self.milestones.register_equity(total_equity)
+        if tier_status.trading_locked:
+            self.record_event("portfolio_locked", {"reason": tier_status.reason, "locked_until": tier_status.locked_until.isoformat() if tier_status.locked_until else None})
+            return actions
+
+        rankings = self.rank_symbols()
+        held_symbols = self._live_held_symbols()
+        selected_symbols = {
+            row["symbol"]
+            for row in rankings
+            if row["action"] == "BUY" and row["confidence"] >= decimal_float(self.settings.portfolio_min_confidence)
+        }
+        selected_symbols = set(list(selected_symbols)[: self.settings.max_active_positions])
+
+        for symbol in sorted(held_symbols):
+            signal = self.engines[symbol].last_signal
+            should_sell = signal.action == "SELL" and signal.confidence >= self.settings.portfolio_rotation_sell_confidence
+            should_rotate = selected_symbols and symbol not in selected_symbols and signal.action != "BUY"
+            if not (should_sell or should_rotate):
+                continue
+            mark = self.engines[symbol].mark_price()
+            quantity = self._account_total(split_symbol(symbol)[0])
+            notional = quantity * mark
+            if mark <= 0 or notional < self.settings.minimum_trade_notional_usdt:
+                continue
+            actions.append(
+                PortfolioAction(
+                    symbol=symbol,
+                    action="SELL",
+                    notional_usdt=notional,
+                    confidence=signal.confidence,
+                    reason="live_sell_signal" if should_sell else "live_rotation",
+                )
+            )
+
+        quote_free = self._account_free(self.quote_asset)
+        available_for_risk = max(Decimal("0"), total_equity * (Decimal("1") - self.settings.quote_reserve_fraction))
+        deployed_value = sum(
+            self._account_total(split_symbol(symbol)[0]) * self.engines[symbol].mark_price()
+            for symbol in self.symbols
+        )
+        remaining_risk_budget = max(Decimal("0"), available_for_risk - deployed_value)
+        target_position_value = available_for_risk / Decimal(max(1, self.settings.max_active_positions))
+
+        for row in rankings:
+            symbol = row["symbol"]
+            if len(held_symbols) >= self.settings.max_active_positions and symbol not in held_symbols:
+                continue
+            if symbol in held_symbols:
+                continue
+            if row["action"] != "BUY" or parse_decimal(row["confidence"]) < self.settings.portfolio_min_confidence:
+                continue
+            notional = min(quote_free, target_position_value, remaining_risk_budget)
+            if notional < self.settings.minimum_trade_notional_usdt:
+                continue
+            confidence = parse_decimal(row["confidence"])
+            actions.append(PortfolioAction(symbol=symbol, action="BUY", notional_usdt=notional, confidence=confidence, reason="live_ranked_buy_signal"))
+            quote_free -= notional
+            remaining_risk_budget -= notional
+            held_symbols.add(symbol)
+
+        if actions:
+            self.record_event("live_rebalance_intent", {"actions": [action.as_dict() for action in actions]})
+        return actions
 
     def _rebalance_paper(self) -> list[PortfolioAction]:
         actions: list[PortfolioAction] = []
@@ -215,6 +299,8 @@ class PortfolioTradingEngine:
         return action
 
     def total_equity_usdt(self) -> Decimal:
+        if self.settings.live_trading_armed and self.account_balances:
+            return self._live_total_equity_usdt()
         total = self.quote_balance
         for symbol, position in self.positions.items():
             engine = self.engines.get(symbol)
@@ -222,6 +308,39 @@ class PortfolioTradingEngine:
                 continue
             total += parse_decimal(position.get("quantity")) * engine.mark_price()
         return total
+
+    def _live_total_equity_usdt(self) -> Decimal:
+        total = self._account_total(self.quote_asset)
+        for symbol in self.symbols:
+            base_asset = split_symbol(symbol)[0]
+            mark = self.engines[symbol].mark_price()
+            if mark > 0:
+                total += self._account_total(base_asset) * mark
+        return total
+
+    def _account_free(self, asset: str) -> Decimal:
+        return parse_decimal((self.account_balances.get(asset.upper()) or {}).get("free"))
+
+    def _account_locked(self, asset: str) -> Decimal:
+        return parse_decimal((self.account_balances.get(asset.upper()) or {}).get("locked"))
+
+    def _account_total(self, asset: str) -> Decimal:
+        return self._account_free(asset) + self._account_locked(asset)
+
+    def _live_held_symbols(self) -> set[str]:
+        held: set[str] = set()
+        for symbol in self.symbols:
+            base_asset = split_symbol(symbol)[0]
+            quantity = self._account_total(base_asset)
+            mark = self.engines[symbol].mark_price()
+            if quantity > 0 and quantity * mark >= self.settings.minimum_trade_notional_usdt:
+                held.add(symbol)
+        return held
+
+    def _is_symbol_held(self, symbol: str) -> bool:
+        if self.settings.live_trading_armed and self.account_balances:
+            return symbol in self._live_held_symbols()
+        return symbol in self.positions
 
     def rank_symbols(self) -> list[JsonDict]:
         rows: list[JsonDict] = []
@@ -244,23 +363,12 @@ class PortfolioTradingEngine:
                     "obi": (engine.last_book_metrics.as_dict().get("imbalance") if engine.last_book_metrics else None),
                     "z_score": (engine.last_indicators.as_dict().get("z_score") if engine.last_indicators else None),
                     "research_loaded": bool(research.get("profile_loaded")) if isinstance(research, dict) else False,
-                    "held": symbol in self.positions,
+                    "held": self._is_symbol_held(symbol),
                 }
             )
         return sorted(rows, key=lambda row: row["rank_score"], reverse=True)
 
-    def top_symbol(self) -> str:
-        rankings = self.rank_symbols()
-        return str(rankings[0]["symbol"]) if rankings else self.symbols[0]
-
-    def telemetry(self, websocket_health: JsonDict | None = None) -> JsonDict:
-        self.rebalance_if_due()
-        equity = self.total_equity_usdt()
-        tier_status = self.milestones.register_equity(equity)
-        rankings = self.rank_symbols()
-        top_symbol = self.top_symbol()
-        top_engine = self.engines[top_symbol]
-        top_telemetry = top_engine.telemetry(websocket_health)
+    def _paper_positions_payload(self) -> list[JsonDict]:
         positions_payload = []
         for symbol, position in sorted(self.positions.items()):
             engine = self.engines[symbol]
@@ -279,19 +387,75 @@ class PortfolioTradingEngine:
                     "unrealized_pnl_usdt": decimal_float(pnl),
                 }
             )
+        return positions_payload
+
+    def _live_positions_payload(self) -> list[JsonDict]:
+        positions_payload = []
+        for symbol in sorted(self.symbols):
+            base_asset = split_symbol(symbol)[0]
+            quantity = self._account_total(base_asset)
+            mark = self.engines[symbol].mark_price()
+            value = quantity * mark
+            if quantity <= 0 or value < self.settings.minimum_trade_notional_usdt:
+                continue
+            stored = self.positions.get(symbol, {})
+            entry = parse_decimal(stored.get("entry_price"))
+            pnl = (mark - entry) * quantity if entry > 0 else Decimal("0")
+            positions_payload.append(
+                {
+                    "symbol": symbol,
+                    "quantity": decimal_float(quantity),
+                    "entry_price": decimal_float(entry),
+                    "mark_price": decimal_float(mark),
+                    "value_usdt": decimal_float(value),
+                    "unrealized_pnl_usdt": decimal_float(pnl),
+                }
+            )
+        return positions_payload
+
+    def _balance_payload(self) -> JsonDict:
+        if self.settings.live_trading_armed and self.account_balances:
+            wanted_assets = {self.quote_asset}
+            wanted_assets.update(split_symbol(symbol)[0] for symbol in self.symbols)
+            return {
+                asset: {
+                    "free": decimal_float(self._account_free(asset)),
+                    "locked": decimal_float(self._account_locked(asset)),
+                    "total": decimal_float(self._account_total(asset)),
+                }
+                for asset in sorted(wanted_assets)
+                if self._account_total(asset) != 0 or asset == self.quote_asset
+            }
+        return {
+            self.quote_asset: {
+                "free": decimal_float(self.quote_balance),
+                "locked": 0.0,
+                "total": decimal_float(self.quote_balance),
+            }
+        }
+
+    def top_symbol(self) -> str:
+        rankings = self.rank_symbols()
+        return str(rankings[0]["symbol"]) if rankings else self.symbols[0]
+
+    def telemetry(self, websocket_health: JsonDict | None = None) -> JsonDict:
+        self.rebalance_if_due()
+        equity = self.total_equity_usdt()
+        tier_status = self.milestones.register_equity(equity)
+        rankings = self.rank_symbols()
+        top_symbol = self.top_symbol()
+        top_engine = self.engines[top_symbol]
+        top_telemetry = top_engine.telemetry(websocket_health)
+        live_account = self.settings.live_trading_armed and bool(self.account_balances)
+        positions_payload = self._live_positions_payload() if live_account else self._paper_positions_payload()
+        quote_free = self._account_free(self.quote_asset) if live_account else self.quote_balance
 
         top_telemetry["symbol"] = ",".join(self.symbols)
         top_telemetry["system_balance"] = {
             "total_equity_usdt": decimal_float(equity),
             "quote_asset": self.quote_asset,
             "base_asset": "MULTI",
-            "balances": {
-                self.quote_asset: {
-                    "free": decimal_float(self.quote_balance),
-                    "locked": 0.0,
-                    "total": decimal_float(self.quote_balance),
-                }
-            },
+            "balances": self._balance_payload(),
         }
         top_telemetry["tier_progression"] = tier_status.as_dict()
         top_telemetry["portfolio"] = {
@@ -299,7 +463,8 @@ class PortfolioTradingEngine:
             "symbols": list(self.symbols),
             "top_symbol": top_symbol,
             "live_trading_armed": self.settings.live_trading_armed,
-            "quote_balance": decimal_float(self.quote_balance),
+            "account_source": "mexc_live_account" if live_account else "paper_state",
+            "quote_balance": decimal_float(quote_free),
             "total_equity_usdt": decimal_float(equity),
             "max_active_positions": self.settings.max_active_positions,
             "quote_reserve_fraction": decimal_float(self.settings.quote_reserve_fraction),

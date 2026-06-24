@@ -1,0 +1,58 @@
+services:
+  - type: web
+    name: projectmile3-mexc-quant
+    runtime: python
+    plan: starter
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python scripts/render_start.py
+    healthCheckPath: /healthz
+    autoDeploy: true
+    disk:
+      name: projectmile3-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.4
+      - key: TRADING_SYMBOL
+        value: BTCUSDT
+      - key: TRADING_SYMBOLS
+        value: BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT
+      - key: AI_PROVIDER
+        value: local
+      - key: APP_ACCESS_TOKEN
+        sync: false
+      - key: MEXC_API_KEY
+        sync: false
+      - key: MEXC_SECRET_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TRADING_MODE
+        value: paper
+      - key: PAPER_STARTING_EQUITY_USDT
+        value: "100"
+      - key: ENGINE_STATE_PATH
+        value: /var/data/engine_state.json
+      - key: PORTFOLIO_STATE_PATH
+        value: /var/data/portfolio_state.json
+      - key: RESEARCH_PROFILE_PATH
+        value: /var/data/research_profile.json
+      - key: RESEARCH_PROFILES_DIR
+        value: /var/data/research_profiles
+      - key: RESEARCH_DEFAULT_INTERVAL
+        value: 5m
+      - key: RESEARCH_DEFAULT_DAYS
+        value: "30"
+      - key: MAX_ACTIVE_POSITIONS
+        value: "3"
+      - key: QUOTE_RESERVE_FRACTION
+        value: "0.35"
+      - key: LIVE_TRADING_CONFIRMATION
+        sync: false
+      - key: AUTO_TRAIN_ON_START
+        value: "false"
+      - key: AUTO_LIVE_AFTER_TRAIN
+        value: "true"
+      - key: TRAINING_MIN_OPEN_SYMBOLS
+        value: "1"

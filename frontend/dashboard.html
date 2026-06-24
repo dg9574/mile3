@@ -1,0 +1,1634 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProjectMile3 MEXC Command Center</title>
+  <style>
+    :root {
+      --black: #0A0A0A;
+      --surface: #141414;
+      --surface-2: #101010;
+      --surface-3: #1C1C1C;
+      --line: #2A2A2A;
+      --line-strong: #3A3A3A;
+      --white: #FFFFFF;
+      --soft: #E7E7E7;
+      --muted: #9B9B9B;
+      --dim: #666666;
+      --gain: #20F08B;
+      --warn: #FFE45E;
+      --loss: #FF4D4D;
+      --info: #8AD7FF;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+      margin: 0px;
+      background: var(--black);
+      color: var(--white);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0.01em;
+    }
+
+    body {
+      overflow-x: hidden;
+    }
+
+    #particleField {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.55;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent 80%);
+      z-index: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border-radius: 0px;
+    }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 84px minmax(0, 1fr) 420px;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.08), transparent 26%),
+        var(--black);
+    }
+
+    .command-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: stretch;
+      border: 1px solid var(--line);
+      background: rgba(20, 20, 20, 0.78);
+      box-shadow: var(--shadow);
+      padding: 10px;
+    }
+
+    .command-copy {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+      padding: 8px;
+    }
+
+    .command-copy b {
+      font-size: 12px;
+      font-weight: 1000;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .command-copy span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 750;
+    }
+
+    .action-button {
+      position: relative;
+      overflow: hidden;
+      min-width: 156px;
+      min-height: 54px;
+      border: 1px solid var(--white);
+      background: var(--white);
+      color: var(--black);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 1000;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease;
+    }
+
+    .action-button::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.48), transparent);
+      transform: translateX(-120%);
+      transition: transform 520ms ease;
+      mix-blend-mode: difference;
+    }
+
+    .action-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .action-button:hover::after {
+      transform: translateX(120%);
+    }
+
+    .action-button.secondary {
+      background: transparent;
+      color: var(--white);
+      border-color: var(--line-strong);
+    }
+
+    .action-button:disabled,
+    .ghost:disabled {
+      opacity: 0.55;
+      cursor: progress;
+    }
+
+    .rail {
+      position: sticky;
+      top: 0;
+      min-height: 100vh;
+      border-right: 1px solid var(--line);
+      background: rgba(10, 10, 10, 0.86);
+      backdrop-filter: blur(18px);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 18px 12px;
+      gap: 18px;
+    }
+
+    .mark {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--white);
+      color: var(--white);
+      font-weight: 1000;
+      letter-spacing: 0.08em;
+      animation: pulseBorder 3s ease-in-out infinite;
+    }
+
+    @keyframes pulseBorder {
+      0%, 100% { box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
+      50% { box-shadow: 0 0 28px rgba(255, 255, 255, 0.22); }
+    }
+
+    .nav {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .nav button,
+    .rail-mini {
+      width: 58px;
+      min-height: 52px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    .nav button.active {
+      border-color: var(--line-strong);
+      background: var(--surface);
+      color: var(--white);
+    }
+
+    .rail-mini {
+      color: var(--dim);
+      cursor: default;
+    }
+
+    .workspace {
+      min-width: 0;
+      padding: 28px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 22px;
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: start;
+      padding: 10px 0 26px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      margin: 0px;
+      max-width: 880px;
+      font-size: clamp(38px, 6vw, 84px);
+      line-height: 0.91;
+      font-weight: 1000;
+      text-transform: uppercase;
+      letter-spacing: 0.035em;
+    }
+
+    .header-meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      min-height: 40px;
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+      padding: 10px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--soft);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--muted);
+    }
+
+    .dot.live,
+    .positive {
+      background: var(--gain);
+      color: var(--gain);
+    }
+
+    .dot.warn,
+    .warning {
+      background: var(--warn);
+      color: var(--warn);
+    }
+
+    .dot.loss,
+    .negative {
+      background: var(--loss);
+      color: var(--loss);
+    }
+
+    .page {
+      display: none;
+      min-width: 0;
+      animation: riseIn 340ms ease-out both;
+    }
+
+    .page.active {
+      display: grid;
+      gap: 22px;
+    }
+
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0px); }
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .metric {
+      position: relative;
+      overflow: hidden;
+      min-height: 182px;
+      background: linear-gradient(180deg, var(--surface), var(--surface-2));
+      padding: 22px;
+      display: grid;
+      align-content: space-between;
+      gap: 18px;
+    }
+
+    .metric::after {
+      content: "";
+      position: absolute;
+      inset: auto -60px -80px auto;
+      width: 160px;
+      height: 160px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      transform: rotate(32deg);
+    }
+
+    .metric label,
+    .panel-title,
+    .chat-title {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .metric strong {
+      position: relative;
+      z-index: 1;
+      font-size: clamp(26px, 3.6vw, 48px);
+      line-height: 1;
+      font-weight: 1000;
+      letter-spacing: 0.015em;
+      overflow-wrap: anywhere;
+    }
+
+    .metric span {
+      position: relative;
+      z-index: 1;
+      color: var(--soft);
+      font-size: 12px;
+      line-height: 1.4;
+      font-weight: 750;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .layout-2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.95fr);
+      gap: 22px;
+    }
+
+    .layout-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 22px;
+    }
+
+    .panel {
+      min-width: 0;
+      background: rgba(20, 20, 20, 0.94);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 22px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .panel-sub {
+      color: var(--dim);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .chart-wrap {
+      position: relative;
+      min-height: 310px;
+    }
+
+    .chart-wrap.small {
+      min-height: 236px;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .kv {
+      display: grid;
+      gap: 12px;
+    }
+
+    .kv-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 1fr) minmax(120px, 1fr);
+      gap: 12px;
+      align-items: baseline;
+      border-bottom: 1px solid #242424;
+      padding-bottom: 12px;
+    }
+
+    .kv-row:last-child {
+      border-bottom: 0px;
+      padding-bottom: 0px;
+    }
+
+    .kv-row span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.13em;
+    }
+
+    .kv-row strong {
+      text-align: right;
+      color: var(--white);
+      font-size: 17px;
+      font-weight: 950;
+      overflow-wrap: anywhere;
+    }
+
+    .tier-track {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      background: #0D0D0D;
+    }
+
+    .tier-step {
+      min-height: 116px;
+      border-right: 1px solid var(--line);
+      padding: 16px;
+      display: grid;
+      align-content: space-between;
+      gap: 16px;
+      color: var(--dim);
+    }
+
+    .tier-step:last-child {
+      border-right: 0px;
+    }
+
+    .tier-step.active {
+      color: var(--white);
+      background: linear-gradient(180deg, #1D1D1D, #111111);
+      box-shadow: inset 0 2px 0 var(--white);
+    }
+
+    .tier-step b {
+      font-size: 12px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .tier-step span {
+      font-size: 24px;
+      font-weight: 1000;
+    }
+
+    .timeline {
+      max-height: 420px;
+      overflow: auto;
+      display: grid;
+      gap: 12px;
+      padding-right: 6px;
+    }
+
+    .log-entry {
+      border-left: 2px solid var(--line-strong);
+      background: #0D0D0D;
+      padding: 14px;
+      color: var(--soft);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .log-entry b {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--white);
+      font-size: 11px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .research-score {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+
+    .score-tile {
+      background: #0D0D0D;
+      padding: 18px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .score-tile span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    .score-tile strong {
+      font-size: 28px;
+      font-weight: 1000;
+    }
+
+    .ranking-grid {
+      display: grid;
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+
+    .ranking-row {
+      display: grid;
+      grid-template-columns: 1fr 0.8fr 0.8fr 0.8fr 0.7fr;
+      gap: 12px;
+      align-items: center;
+      min-height: 48px;
+      background: #0D0D0D;
+      padding: 12px 14px;
+      color: var(--soft);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .ranking-row.head {
+      color: var(--muted);
+      background: var(--surface-3);
+      font-size: 10px;
+      font-weight: 1000;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .ranking-row strong {
+      color: var(--white);
+      font-size: 14px;
+      font-weight: 1000;
+    }
+
+    .chat {
+      position: sticky;
+      top: 0;
+      min-width: 0;
+      height: 100vh;
+      border-left: 1px solid var(--line);
+      background: rgba(20, 20, 20, 0.92);
+      backdrop-filter: blur(20px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .chat-head {
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+    }
+
+    .chat-head p {
+      margin: 0px;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 650;
+    }
+
+    .messages {
+      min-height: 0;
+      overflow: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .message {
+      border: 1px solid var(--line);
+      background: #0A0A0A;
+      padding: 15px;
+      color: var(--soft);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .message.user {
+      border-color: var(--line-strong);
+      color: var(--white);
+    }
+
+    .message.ai {
+      border-left: 3px solid var(--white);
+    }
+
+    .chat-form {
+      border-top: 1px solid var(--line);
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 104px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      background: var(--black);
+      color: var(--white);
+      border-radius: 0px;
+      padding: 14px;
+      outline: none;
+      font-size: 14px;
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    textarea:focus {
+      border-color: var(--white);
+    }
+
+    .send {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid var(--white);
+      background: var(--white);
+      color: var(--black);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 1000;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .ghost {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      background: transparent;
+      color: var(--white);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 1000;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .send:disabled {
+      opacity: 0.55;
+      cursor: progress;
+    }
+
+    .mobile-nav {
+      display: none;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+
+    .mobile-nav button {
+      min-height: 44px;
+      border: 0px;
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 950;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .mobile-nav button.active {
+      background: var(--white);
+      color: var(--black);
+    }
+
+    @media (max-width: 1320px) {
+      .shell {
+        grid-template-columns: 72px minmax(0, 1fr);
+      }
+
+      .chat {
+        position: relative;
+        grid-column: 2;
+        height: 720px;
+        border-left: 0px;
+        border-top: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 920px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .rail {
+        display: none;
+      }
+
+      .workspace {
+        padding: 18px;
+      }
+
+      .header {
+        grid-template-columns: 1fr;
+      }
+
+      .header-meta {
+        justify-content: flex-start;
+      }
+
+      .mobile-nav {
+        display: grid;
+      }
+
+      .command-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .action-button {
+        width: 100%;
+      }
+
+      .metric-grid,
+      .layout-2,
+      .layout-3,
+      .research-score {
+        grid-template-columns: 1fr;
+      }
+
+      .chat {
+        grid-column: 1;
+      }
+
+      .tier-track {
+        grid-template-columns: 1fr;
+      }
+
+      .tier-step {
+        border-right: 0px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .tier-step:last-child {
+        border-bottom: 0px;
+      }
+    }
+
+    @media (max-width: 560px) {
+      h1 {
+        font-size: 38px;
+      }
+
+      .kv-row {
+        grid-template-columns: 1fr;
+      }
+
+      .kv-row strong {
+        text-align: left;
+      }
+
+      .ranking-row {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .ranking-row span:nth-child(n+3) {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="particleField"></canvas>
+  <div class="shell">
+    <aside class="rail">
+      <div class="mark">M3</div>
+      <nav class="nav" aria-label="Primary navigation">
+        <button class="active" data-page-button="overview">Overview</button>
+        <button data-page-button="market">Market</button>
+        <button data-page-button="risk">Risk</button>
+        <button data-page-button="research">Research</button>
+      </nav>
+      <div class="rail-mini" id="railMode">Paper</div>
+    </aside>
+
+    <main class="workspace">
+      <header class="header">
+        <div>
+          <div class="eyebrow">ProjectMile3 Command Center</div>
+          <h1 id="symbolTitle">Loading Runtime</h1>
+        </div>
+        <div class="header-meta">
+          <div class="pill"><i class="dot" id="runtimeDot"></i><span id="activeStatus">Initializing</span></div>
+          <div class="pill" id="clock">--:--:--</div>
+        </div>
+      </header>
+
+      <nav class="mobile-nav" aria-label="Mobile navigation">
+        <button class="active" data-page-button="overview">Overview</button>
+        <button data-page-button="market">Market</button>
+        <button data-page-button="risk">Risk</button>
+        <button data-page-button="research">Research</button>
+      </nav>
+
+      <section class="command-strip">
+        <div class="command-copy">
+          <b id="trainHeadline">Training Control</b>
+          <span id="trainStatus">Use Train after deployment to calibrate profiles, restart the engine, and arm only symbols whose trade gate opens.</span>
+        </div>
+        <button class="action-button" id="trainButton" type="button">Train Mile3</button>
+        <button class="action-button secondary" id="tokenButton" type="button">Access Token</button>
+      </section>
+
+      <section class="page active" data-page="overview">
+        <div class="metric-grid">
+          <article class="metric"><label>Total Capital</label><strong id="totalCapital">0.00</strong><span id="balanceSub">USDT equity</span></article>
+          <article class="metric"><label>Progression Delta</label><strong id="progressionDelta">0.00</strong><span id="tierSub">Tier pending</span></article>
+          <article class="metric"><label>Signal</label><strong id="lastSignal">HOLD</strong><span id="signalSub">Confidence 0.0%</span></article>
+          <article class="metric"><label>Drawdown</label><strong id="dailyDrawdown">0.00%</strong><span id="tierReason">Initializing</span></article>
+        </div>
+
+        <div class="layout-2">
+          <article class="panel">
+            <div class="panel-head">
+              <div><div class="panel-title">Capital Curve</div><div class="panel-sub">Real-time equity telemetry</div></div>
+              <div class="pill" id="historyCount">0 points</div>
+            </div>
+            <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div><div class="panel-title">Tier Ladder</div><div class="panel-sub">100 -> 1000 -> 3000 -> 5000 -> 10000</div></div>
+            </div>
+            <div class="tier-track" id="tierTrack"></div>
+            <div class="kv">
+              <div class="kv-row"><span>Mode</span><strong id="runtimeMode">Paper</strong></div>
+              <div class="kv-row"><span>Lock Until</span><strong id="lockUntil">None</strong></div>
+              <div class="kv-row"><span>Public WS</span><strong id="publicWs">Unknown</strong></div>
+              <div class="kv-row"><span>Private WS</span><strong id="privateWs">Unknown</strong></div>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div><div class="panel-title">Portfolio Rankings</div><div class="panel-sub">Multi-symbol buy / hold / sell map</div></div>
+            <div class="pill" id="portfolioSummary">0 symbols</div>
+          </div>
+          <div class="ranking-grid" id="symbolRankings"></div>
+        </article>
+      </section>
+
+      <section class="page" data-page="market">
+        <div class="layout-2">
+          <article class="panel">
+            <div class="panel-head">
+              <div><div class="panel-title">Price Motion</div><div class="panel-sub">Mark price stream</div></div>
+              <div class="pill" id="markPricePill">0.00</div>
+            </div>
+            <div class="chart-wrap"><canvas id="priceChart"></canvas></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div><div class="panel-title">Microstructure</div><div class="panel-sub">Top-5 liquidity pressure</div></div>
+            </div>
+            <div class="chart-wrap small"><canvas id="obiGauge"></canvas></div>
+            <div class="kv">
+              <div class="kv-row"><span>Top-5 OBI</span><strong id="obi">0.000</strong></div>
+              <div class="kv-row"><span>Z-Score</span><strong id="zScore">0.00</strong></div>
+              <div class="kv-row"><span>Spread</span><strong id="spread">0.00 bps</strong></div>
+              <div class="kv-row"><span>OU Half Life</span><strong id="halfLife">0.00</strong></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" data-page="risk">
+        <div class="layout-3">
+          <article class="panel">
+            <div class="panel-title">Position</div>
+            <div class="kv">
+              <div class="kv-row"><span>Base Quantity</span><strong id="positionQty">0</strong></div>
+              <div class="kv-row"><span>Entry</span><strong id="entryPrice">0.00</strong></div>
+              <div class="kv-row"><span>Mark</span><strong id="markPrice">0.00</strong></div>
+              <div class="kv-row"><span>Unrealized PnL</span><strong id="unrealizedPnl">0.00</strong></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-title">Sizing</div>
+            <div class="chart-wrap small"><canvas id="riskGauge"></canvas></div>
+            <div class="kv">
+              <div class="kv-row"><span>Kelly Fraction</span><strong id="kellyFraction">0.00%</strong></div>
+              <div class="kv-row"><span>Notional</span><strong id="recommendedNotional">0.00</strong></div>
+              <div class="kv-row"><span>Trail Stop</span><strong id="trailingStop">0.00%</strong></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-title">Execution Timeline</div>
+            <div class="timeline" id="logs"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" data-page="research">
+        <article class="panel">
+          <div class="panel-head">
+            <div><div class="panel-title">Calibration Profile</div><div class="panel-sub" id="researchStatus">Not calibrated</div></div>
+            <div class="pill" id="researchGenerated">No profile</div>
+          </div>
+          <div class="research-score">
+            <div class="score-tile"><span>Return</span><strong id="researchReturn">0.00%</strong></div>
+            <div class="score-tile"><span>Max Drawdown</span><strong id="researchDrawdown">0.00%</strong></div>
+            <div class="score-tile"><span>Sharpe</span><strong id="researchSharpe">0.00</strong></div>
+            <div class="score-tile"><span>Trades</span><strong id="researchTrades">0</strong></div>
+          </div>
+          <div class="layout-2">
+            <div class="kv">
+              <div class="kv-row"><span>Window</span><strong id="researchWindow">--</strong></div>
+              <div class="kv-row"><span>Std Dev</span><strong id="researchStd">--</strong></div>
+              <div class="kv-row"><span>Z Entry</span><strong id="researchZEntry">--</strong></div>
+              <div class="kv-row"><span>Lookback</span><strong id="researchLookback">--</strong></div>
+            </div>
+            <div class="chart-wrap small"><canvas id="researchCurve"></canvas></div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <aside class="chat" aria-label="Market analyst chat">
+      <header class="chat-head">
+        <div class="chat-title">MarketAnalystAI</div>
+        <p>Ask for a live read on tier progression, drawdown, signal quality, sizing, execution health, or calibration.</p>
+      </header>
+      <section class="messages" id="messages">
+        <div class="message ai">Command center online. Run calibration first for a research-backed profile, then keep the system in paper mode until it earns trust.</div>
+      </section>
+      <form class="chat-form" id="chatForm">
+        <textarea id="chatInput" maxlength="4000" placeholder="Ask for a live market and risk read..."></textarea>
+        <button class="ghost" id="analyzeFilesButton" type="button">Analyze Project Files Free</button>
+        <button class="send" id="sendButton" type="submit">Send Analysis</button>
+      </form>
+    </aside>
+  </div>
+
+  <script>
+    const state = {
+      telemetry: null,
+      history: [],
+      training: null,
+      polling: false,
+      activePage: "overview",
+      particles: [],
+      particleAnimation: null
+    };
+
+    const ACCESS_TOKEN_KEY = "projectmile3_access_token";
+    const $ = (id) => document.getElementById(id);
+    const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+    function money(value) {
+      return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fixed(value, places = 2) {
+      return Number(value || 0).toFixed(places);
+    }
+
+    function pct(value) {
+      return `${(Number(value || 0) * 100).toFixed(2)}%`;
+    }
+
+    function setText(id, value) {
+      const node = $(id);
+      if (node) node.textContent = value;
+    }
+
+    function getAccessToken() {
+      return localStorage.getItem(ACCESS_TOKEN_KEY) || "";
+    }
+
+    function setAccessToken(token) {
+      const clean = String(token || "").trim();
+      if (clean) localStorage.setItem(ACCESS_TOKEN_KEY, clean);
+      else localStorage.removeItem(ACCESS_TOKEN_KEY);
+    }
+
+    function authHeaders(base = {}) {
+      const headers = { ...base };
+      const token = getAccessToken();
+      if (token) headers["X-Mile3-Token"] = token;
+      return headers;
+    }
+
+    function configureAccessToken() {
+      const token = window.prompt("Enter Mile3 dashboard access token. Leave blank to clear it.", getAccessToken());
+      if (token === null) return;
+      setAccessToken(token);
+      setText("trainStatus", getAccessToken() ? "Access token saved in this browser." : "Access token cleared for this browser.");
+      fetchTelemetry();
+      fetchTrainingStatus();
+    }
+
+    async function fetchJson(url, options = {}, retryWithTokenPrompt = true) {
+      const response = await fetch(url, {
+        ...options,
+        headers: authHeaders(options.headers || {})
+      });
+      if (response.status === 401 && retryWithTokenPrompt) {
+        const token = window.prompt("Mile3 access token required for this dashboard.");
+        if (token) {
+          setAccessToken(token);
+          return fetchJson(url, options, false);
+        }
+      }
+      if (!response.ok) {
+        throw new Error(`${url} HTTP ${response.status}`);
+      }
+      return response.json();
+    }
+
+    function setClassByValue(node, value) {
+      node.classList.remove("positive", "warning", "negative");
+      const number = Number(value || 0);
+      if (number > 0) node.classList.add("positive");
+      if (number < 0) node.classList.add("negative");
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function switchPage(pageName) {
+      state.activePage = pageName;
+      $$("[data-page]").forEach((page) => page.classList.toggle("active", page.dataset.page === pageName));
+      $$("[data-page-button]").forEach((button) => button.classList.toggle("active", button.dataset.pageButton === pageName));
+      requestAnimationFrame(drawCharts);
+    }
+
+    $$("[data-page-button]").forEach((button) => {
+      button.addEventListener("click", () => switchPage(button.dataset.pageButton));
+    });
+
+    function updateTierTrack(tierNumber) {
+      const tiers = [
+        ["TIER 1", 100],
+        ["TIER 2", 1000],
+        ["TIER 3", 3000],
+        ["TIER 4", 5000],
+        ["TIER 5", 10000]
+      ];
+      const node = $("tierTrack");
+      node.innerHTML = "";
+      tiers.forEach(([label, amount], index) => {
+        const step = document.createElement("div");
+        step.className = `tier-step ${index + 1 === Number(tierNumber || 1) ? "active" : ""}`;
+        step.innerHTML = `<b>${label}</b><span>${money(amount)}</span>`;
+        node.appendChild(step);
+      });
+    }
+
+    function updateTelemetry(data) {
+      state.telemetry = data;
+      const balance = data.system_balance || {};
+      const tier = data.tier_progression || {};
+      const trade = data.active_trade_metrics || {};
+      const signal = trade.last_signal || {};
+      const market = data.market || {};
+      const book = market.order_book || {};
+      const indicators = market.indicators || {};
+      const ou = indicators.ou || {};
+      const ws = data.websocket || {};
+      const research = data.research || {};
+      const portfolio = data.portfolio || {};
+
+      setText("symbolTitle", data.symbol || "ProjectMile3");
+      setText("railMode", String(data.mode || "paper").toUpperCase());
+      setText("runtimeMode", String(data.mode || "paper").toUpperCase());
+      setText("totalCapital", money(balance.total_equity_usdt));
+      setText("balanceSub", `${balance.quote_asset || "USDT"} equity snapshot`);
+      setText("progressionDelta", money(tier.progression_delta_usdt));
+      setText("tierSub", `${tier.current_tier || "TIER_1"} -> ${tier.next_tier || "MAX"}`);
+      setText("lastSignal", signal.action || "HOLD");
+      setText("signalSub", `Confidence ${(Number(signal.confidence || 0) * 100).toFixed(1)}%`);
+      setText("dailyDrawdown", pct(tier.daily_drawdown_pct));
+      setText("tierReason", tier.reason || "active");
+      setText("activeStatus", tier.trading_locked ? "Locked" : (tier.reason || "Active"));
+      setText("lockUntil", tier.locked_until || "None");
+
+      const dot = $("runtimeDot");
+      dot.className = "dot";
+      dot.classList.add(tier.trading_locked ? "loss" : ((ws.public && ws.public.connected) ? "live" : "warn"));
+
+      setText("markPricePill", money(trade.mark_price || book.mid_price));
+      setText("markPrice", money(trade.mark_price || book.mid_price));
+      setText("obi", fixed(book.imbalance, 3));
+      setText("zScore", fixed(indicators.z_score, 2));
+      setText("spread", `${fixed(book.spread_bps, 2)} bps`);
+      setText("halfLife", fixed(ou.half_life_periods, 2));
+      setText("publicWs", (ws.public && ws.public.connected) ? "Connected" : "Disconnected");
+      setText("privateWs", (ws.private && ws.private.connected) ? "Connected" : "Disconnected");
+
+      setText("positionQty", fixed(trade.position_base_quantity, 8));
+      setText("entryPrice", money(trade.entry_price));
+      setText("unrealizedPnl", money(trade.unrealized_pnl_usdt));
+      setClassByValue($("unrealizedPnl"), trade.unrealized_pnl_usdt);
+      setText("kellyFraction", pct(signal.kelly_fraction));
+      setText("recommendedNotional", money(signal.recommended_notional_usdt));
+      setText("trailingStop", pct(signal.trailing_stop_distance_pct));
+      setText("historyCount", `${state.history.length} points`);
+
+      updateTierTrack(tier.current_tier_number);
+      updateResearch(research);
+      updateRankings(portfolio);
+      updateLogs(data.execution_logs || []);
+      drawCharts();
+    }
+
+    function updateRankings(portfolio) {
+      const rows = portfolio.rankings || [];
+      setText("portfolioSummary", `${rows.length} symbols / ${(portfolio.positions || []).length} held`);
+      const node = $("symbolRankings");
+      if (!node) return;
+      node.innerHTML = "";
+      const head = document.createElement("div");
+      head.className = "ranking-row head";
+      head.innerHTML = "<span>Symbol</span><span>Action</span><span>Confidence</span><span>Rank</span><span>Held</span>";
+      node.appendChild(head);
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "ranking-row";
+        empty.innerHTML = "<strong>Waiting</strong><span>No ranking data yet</span><span></span><span></span><span></span>";
+        node.appendChild(empty);
+        return;
+      }
+      rows.slice(0, 12).forEach((row) => {
+        const item = document.createElement("div");
+        const action = String(row.action || "HOLD");
+        item.className = "ranking-row";
+        item.innerHTML = `
+          <strong>${escapeHtml(row.symbol || "--")}</strong>
+          <span class="${action === "BUY" ? "positive" : action === "SELL" ? "negative" : ""}">${escapeHtml(action)}</span>
+          <span>${(Number(row.confidence || 0) * 100).toFixed(1)}%</span>
+          <span>${fixed(row.rank_score, 3)}</span>
+          <span>${row.held ? "YES" : "NO"}</span>
+        `;
+        node.appendChild(item);
+      });
+    }
+
+    function updateResearch(research) {
+      const params = research.strategy_parameters || {};
+      const backtest = research.backtest || {};
+      const loaded = Boolean(research.profile_loaded);
+      setText("researchStatus", loaded ? `${research.interval || "--"} / ${research.candle_count || 0} candles` : "Not calibrated");
+      setText("researchGenerated", loaded ? String(research.generated_at || "Profile loaded").replace("T", " ").slice(0, 19) : "No profile");
+      setText("researchReturn", pct(backtest.total_return_pct));
+      setText("researchDrawdown", pct(backtest.max_drawdown_pct));
+      setText("researchSharpe", fixed(backtest.sharpe, 2));
+      setText("researchTrades", String(backtest.trade_count || 0));
+      setText("researchWindow", params.bollinger_window || "--");
+      setText("researchStd", params.bollinger_stddev || "--");
+      setText("researchZEntry", params.z_entry || "--");
+      setText("researchLookback", loaded ? `${research.lookback_days || 0} days` : "--");
+    }
+
+    function updateLogs(entries) {
+      const logs = $("logs");
+      logs.innerHTML = "";
+      const rows = entries.slice(-16).reverse();
+      if (!rows.length) {
+        const empty = document.createElement("div");
+        empty.className = "log-entry";
+        empty.textContent = "No execution events yet.";
+        logs.appendChild(empty);
+        return;
+      }
+      for (const entry of rows) {
+        const row = document.createElement("div");
+        row.className = "log-entry";
+        row.innerHTML = `<b>${escapeHtml(entry.event || "event")}</b>${escapeHtml(JSON.stringify(entry.details || {}))}`;
+        logs.appendChild(row);
+      }
+    }
+
+    async function fetchTelemetry() {
+      if (state.polling) return;
+      state.polling = true;
+      try {
+        const [telemetry, history] = await Promise.all([
+          fetchJson("/api/telemetry", { cache: "no-store" }),
+          fetchJson("/api/history", { cache: "no-store" }, false).catch(() => ({ points: [] }))
+        ]);
+        state.history = (history.points || []).filter(Boolean);
+        updateTelemetry(telemetry);
+      } catch (error) {
+        setText("activeStatus", "Telemetry Fault");
+        $("runtimeDot").className = "dot loss";
+      } finally {
+        state.polling = false;
+      }
+    }
+
+    function setupCanvas(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(rect.width * ratio));
+      const height = Math.max(1, Math.floor(rect.height * ratio));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { ctx, width: rect.width, height: rect.height };
+    }
+
+    function drawLineChart(canvasId, values, options = {}) {
+      const canvas = $(canvasId);
+      if (!canvas) return;
+      const { ctx, width, height } = setupCanvas(canvas);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#101010";
+      ctx.fillRect(0, 0, width, height);
+
+      const padding = { top: 22, right: 22, bottom: 26, left: 52 };
+      const innerW = Math.max(1, width - padding.left - padding.right);
+      const innerH = Math.max(1, height - padding.top - padding.bottom);
+      const clean = values.filter((value) => Number.isFinite(Number(value))).map(Number);
+
+      ctx.strokeStyle = "#242424";
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i += 1) {
+        const y = padding.top + (innerH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+      }
+
+      if (clean.length < 2) {
+        ctx.fillStyle = "#666666";
+        ctx.font = "800 12px Inter, sans-serif";
+        ctx.fillText("Waiting for enough data", padding.left, height / 2);
+        return;
+      }
+
+      const min = Math.min(...clean);
+      const max = Math.max(...clean);
+      const range = max - min || Math.max(1, Math.abs(max));
+      const points = clean.map((value, index) => ({
+        x: padding.left + (innerW * index) / Math.max(1, clean.length - 1),
+        y: padding.top + innerH - ((value - min) / range) * innerH
+      }));
+
+      const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+      gradient.addColorStop(0, options.fill || "rgba(255,255,255,0.18)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, height - padding.bottom);
+      points.forEach((point) => ctx.lineTo(point.x, point.y));
+      ctx.lineTo(points[points.length - 1].x, height - padding.bottom);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.strokeStyle = options.stroke || "#FFFFFF";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = "#9B9B9B";
+      ctx.font = "800 11px Inter, sans-serif";
+      ctx.fillText(money(max), 10, padding.top + 4);
+      ctx.fillText(money(min), 10, height - padding.bottom);
+    }
+
+    function drawGauge(canvasId, value, label, color) {
+      const canvas = $(canvasId);
+      if (!canvas) return;
+      const { ctx, width, height } = setupCanvas(canvas);
+      ctx.clearRect(0, 0, width, height);
+      const cx = width / 2;
+      const cy = height / 2 + 12;
+      const radius = Math.min(width, height) * 0.34;
+      const start = Math.PI * 0.80;
+      const end = Math.PI * 2.20;
+      const normalized = Math.max(0, Math.min(1, value));
+
+      ctx.lineWidth = 16;
+      ctx.strokeStyle = "#252525";
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, start, end);
+      ctx.stroke();
+
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, start, start + (end - start) * normalized);
+      ctx.stroke();
+
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "1000 30px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(label, cx, cy + 8);
+      ctx.fillStyle = "#8F8F8F";
+      ctx.font = "900 10px Inter, sans-serif";
+      ctx.fillText("LIVE RATIO", cx, cy + 34);
+      ctx.textAlign = "left";
+    }
+
+    function drawResearchCurve() {
+      const curve = (((state.telemetry || {}).research || {}).backtest || {}).equity_curve || [];
+      drawLineChart("researchCurve", curve, { stroke: "#8AD7FF", fill: "rgba(138,215,255,0.16)" });
+    }
+
+    function drawCharts() {
+      const points = state.history || [];
+      const equity = points.map((point) => point.equity_usdt);
+      const prices = points.map((point) => point.mark_price);
+      drawLineChart("equityChart", equity, { stroke: "#FFFFFF", fill: "rgba(255,255,255,0.16)" });
+      drawLineChart("priceChart", prices, { stroke: "#20F08B", fill: "rgba(32,240,139,0.13)" });
+
+      const telemetry = state.telemetry || {};
+      const market = telemetry.market || {};
+      const book = market.order_book || {};
+      const trade = telemetry.active_trade_metrics || {};
+      const signal = trade.last_signal || {};
+      const obi = Math.max(-1, Math.min(1, Number(book.imbalance || 0)));
+      drawGauge("obiGauge", (obi + 1) / 2, fixed(obi, 3), obi >= 0 ? "#20F08B" : "#FF4D4D");
+      drawGauge("riskGauge", Math.min(1, Number(signal.kelly_fraction || 0) / 0.25), pct(signal.kelly_fraction), "#FFE45E");
+      drawResearchCurve();
+    }
+
+    function appendMessage(kind, text) {
+      const node = document.createElement("div");
+      node.className = `message ${kind}`;
+      $("messages").appendChild(node);
+      node.scrollIntoView({ block: "end" });
+      if (kind === "ai") streamText(node, text);
+      else node.textContent = text;
+    }
+
+    function streamText(node, text) {
+      node.textContent = "";
+      const chunks = String(text).match(/.{1,18}/gs) || [String(text)];
+      let index = 0;
+      const timer = setInterval(() => {
+        node.textContent += chunks[index] || "";
+        index += 1;
+        node.scrollIntoView({ block: "end" });
+        if (index >= chunks.length) clearInterval(timer);
+      }, 10);
+    }
+
+    function defaultTrainingSymbols() {
+      const portfolioSymbols = (((state.telemetry || {}).portfolio || {}).symbols || []);
+      if (portfolioSymbols.length) return portfolioSymbols.join(",");
+      return String(((state.telemetry || {}).symbol || "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,BNBUSDT")).replaceAll(" ", "");
+    }
+
+    function updateTrainingStatus(status) {
+      state.training = status || null;
+      const button = $("trainButton");
+      const running = status && ["queued", "running"].includes(status.state);
+      if (button) {
+        button.disabled = Boolean(running);
+        button.textContent = running ? "Training..." : "Train Mile3";
+      }
+      if (!status) return;
+      const profileSummary = (status.profiles || [])
+        .slice(0, 8)
+        .map((profile) => `${profile.symbol}:${profile.gate_open ? "OPEN" : "CLOSED"}`)
+        .join("  ");
+      const suffix = profileSummary ? ` ${profileSummary}` : "";
+      setText("trainStatus", `${String(status.state || "idle").toUpperCase()} - ${status.message || "No training run active."}${suffix}`);
+    }
+
+    async function fetchTrainingStatus() {
+      try {
+        const status = await fetchJson("/api/training", { cache: "no-store" }, false);
+        updateTrainingStatus(status);
+      } catch (error) {
+        if (getAccessToken()) setText("trainStatus", `Training status unavailable: ${error.message}`);
+      }
+    }
+
+    async function startTraining() {
+      const symbolsRaw = window.prompt("Symbols to train, comma separated. These must also be in TRADING_SYMBOLS for live runtime trading.", defaultTrainingSymbols());
+      if (symbolsRaw === null) return;
+      const daysRaw = window.prompt("Historical lookback days. Use 7 for a quick calibration, 30 for slower but broader research.", "7");
+      if (daysRaw === null) return;
+      const intervalRaw = window.prompt("MEXC candle interval: 1m, 5m, 15m, 30m, 60m, 4h, 1d.", "5m");
+      if (intervalRaw === null) return;
+
+      const symbols = symbolsRaw
+        .split(",")
+        .map((symbol) => symbol.trim().toUpperCase())
+        .filter(Boolean);
+      const days = Math.max(1, Math.min(365, Number.parseInt(daysRaw, 10) || 7));
+      const interval = (intervalRaw.trim() || "5m");
+      if (!symbols.length) {
+        setText("trainStatus", "Training cancelled: no symbols supplied.");
+        return;
+      }
+
+      updateTrainingStatus({ state: "queued", message: `Submitting ${symbols.join(", ")} / ${interval} / ${days} day(s).`, profiles: [] });
+      appendMessage("user", `Train Mile3: ${symbols.join(", ")} on ${interval} candles for ${days} day(s).`);
+      try {
+        const status = await fetchJson("/api/train", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols, interval, days, restart_runtime: true })
+        });
+        updateTrainingStatus(status);
+        appendMessage("ai", "Training accepted. I will show gate status here when calibration finishes; if live mode is armed, the runtime restarts after training and only eligible symbols can trade.");
+      } catch (error) {
+        updateTrainingStatus({ state: "failed", message: error.message, profiles: [] });
+        appendMessage("ai", `Training request failed: ${error.message}`);
+      }
+    }
+
+    $("chatForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = $("chatInput");
+      const button = $("sendButton");
+      const message = input.value.trim();
+      if (!message) return;
+      appendMessage("user", message);
+      input.value = "";
+      button.disabled = true;
+      button.textContent = "Analyzing";
+      try {
+        const payload = await fetchJson("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message })
+        });
+        appendMessage("ai", payload.response || "No analysis returned.");
+      } catch (error) {
+        appendMessage("ai", `Analysis request failed: ${error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = "Send Analysis";
+      }
+    });
+
+    $("analyzeFilesButton").addEventListener("click", async () => {
+      const button = $("analyzeFilesButton");
+      button.disabled = true;
+      button.textContent = "Analyzing Files";
+      appendMessage("user", "Analyze the project files locally for risks and improvements.");
+      try {
+        const payload = await fetchJson("/api/analyze-files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: "Analyze the project files locally. Focus on trading risk, reliability, missing tests, and dangerous live-execution assumptions." })
+        });
+        appendMessage("ai", payload.response || "No file analysis returned.");
+      } catch (error) {
+        appendMessage("ai", `File analysis failed: ${error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = "Analyze Project Files Free";
+      }
+    });
+
+    $("trainButton").addEventListener("click", startTraining);
+    $("tokenButton").addEventListener("click", configureAccessToken);
+
+    function resizeParticleCanvas(canvas) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(1, window.innerWidth);
+      const height = Math.max(1, window.innerHeight);
+      const pixelWidth = Math.floor(width * ratio);
+      const pixelHeight = Math.floor(height * ratio);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+      }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { ctx, width, height };
+    }
+
+    function seedParticles(width, height) {
+      const count = Math.max(34, Math.min(88, Math.floor(width / 18)));
+      state.particles = Array.from({ length: count }, (_, index) => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.34,
+        vy: (Math.random() - 0.5) * 0.34,
+        r: index % 7 === 0 ? 1.8 : 1.1
+      }));
+    }
+
+    function drawParticles() {
+      const canvas = $("particleField");
+      if (!canvas) return;
+      const { ctx, width, height } = resizeParticleCanvas(canvas);
+      if (!state.particles.length) seedParticles(width, height);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "rgba(255,255,255,0.72)";
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      ctx.lineWidth = 1;
+
+      for (const point of state.particles) {
+        point.x += point.vx;
+        point.y += point.vy;
+        if (point.x < -10) point.x = width + 10;
+        if (point.x > width + 10) point.x = -10;
+        if (point.y < -10) point.y = height + 10;
+        if (point.y > height + 10) point.y = -10;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, point.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      for (let i = 0; i < state.particles.length; i += 1) {
+        for (let j = i + 1; j < state.particles.length; j += 1) {
+          const a = state.particles[i];
+          const b = state.particles[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < 118) {
+            ctx.globalAlpha = (1 - distance / 118) * 0.62;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.globalAlpha = 1;
+      state.particleAnimation = window.requestAnimationFrame(drawParticles);
+    }
+
+    window.addEventListener("resize", drawCharts);
+    window.addEventListener("resize", () => seedParticles(window.innerWidth, window.innerHeight));
+    setInterval(() => setText("clock", new Date().toLocaleTimeString()), 1000);
+    drawParticles();
+    fetchTelemetry();
+    fetchTrainingStatus();
+    setInterval(fetchTelemetry, 5000);
+    setInterval(fetchTrainingStatus, 4000);
+  </script>
+</body>
+</html>
